@@ -1,0 +1,67 @@
+#!/bin/bash -e
+#
+# Take a snapshot of each volume attached to this machine, then delete any
+# previous snapshots older than 2 weeks.  Does not delete snapshots for
+# unattached volumes.
+#
+# Modified from http://pastebin.ca/2317467
+# In turn modified from http://www.stardothosting.com/blog/2012/05/automated-amazon-ebs-snapshot-backup-script-with-7-day-retention/
+
+# This is a magical Amazon service:
+# http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/AESDG-chapter-instancedata.html
+metadata_uri='http://169.254.169.254/latest/meta-data'
+
+# Constants
+EC2_BIN="$EC2_HOME/bin"
+instance_id=`curl -s $metadata_uri/instance-id`
+
+# Dates
+cutoff_date=`date +%Y-%m-%d --date '14 days ago'`
+cutoff_date=`date --date="$cutoff_date" +%s`
+
+# Get the region
+EC2_AVAIL_ZONE=`curl -s $metadata_uri/placement/availability-zone`
+EC2_REGION="`sed -e 's:\([0-9][0-9]*\)[a-z]*\$:\\1:' <<< \"$EC2_AVAIL_ZONE\"`"
+
+# ec2-describe-volumes returns two results for an attached volume: the volume
+# itself (which belongs to a region) and the instance of the volume that's
+# attached to the machine (which belongs to a pseudo device driver).  We could
+# use uniq(1), but grep seems simpler.
+volumes=`$EC2_BIN/ec2-describe-volumes \
+            --region "$EC2_REGION" \
+            --filter "attachment.instance-id=$instance_id" |
+         grep 'VOLUME' |
+         awk '{print $2}'`
+
+for volume in $volumes; do
+   description="$(hostname)_backup-$(date +%Y-%m-%d)_[$instance_id]"
+   cat <<EOT
+Creating Snapshot for the volume: $volume \
+with description: $description
+EOT
+   $EC2_BIN/ec2-create-snapshot --region $EC2_REGION -d $description $volume
+
+   # Get all snapshot info
+   snap_info=`$EC2_BIN/ec2-describe-snapshots \
+                 --region $EC2_REGION \
+                 --filter "volume-id=$volume"`
+
+   # Since we're iterating over lines and each line has whitespace-separated
+   # fields, we need to change bash's field separator.
+   IFS=$'\n'
+   for snap in $snap_info; do
+      snapshot_name=$(awk '{print $2}' <<<"$snap")
+      snapshot_date=$(awk '{print $5}' <<<"$snap" | awk -F T '{print $1}')
+      snapshot_date=$(date --date="$snapshot_date" +%s)
+
+      if (( "$snapshot_date" <= "$cutoff_date" )); then
+         echo "deleting snapshot $snapshot_name ..."
+         $EC2_BIN/ec2-delete-snapshot --region $EC2_REGION $snapshot_name
+      else
+         echo "not deleting snapshot $snapshot_name ..."
+      fi
+   done
+   # Reset it to be nice to the environment.
+   unset IFS
+done
+
