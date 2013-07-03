@@ -1,4 +1,5 @@
 #!/bin/bash -e
+set -o pipefail
 #
 # Take a snapshot of each volume attached to this machine, then delete any
 # previous snapshots older than 2 weeks.  Does not delete snapshots for
