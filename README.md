@@ -7,3 +7,14 @@ consistently.
 
 It lacks sophistication, but that is on the roadmap.
 
+# Installation
+
+`snapshot-with-retention` has one direct dependency, [aws-cli].  Please refer
+to [their installation instructions][aws-cli-install]; for most people, it's
+one command.
+
+[aws-cli]: https://github.com/aws/aws-cli
+[aws-cli-install]: https://github.com/aws/aws-cli#installation
+
+Then, simply put `snapshot-with-retention` somewhere and call it.
+
